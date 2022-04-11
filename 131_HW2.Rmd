@@ -1,0 +1,118 @@
+---
+title: "131_HW2"
+author: "Immad Ali"
+date: "4/10/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Setup
+
+```{r, include=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+library(yardstick)
+tidymodels_prefer()
+
+set.seed(100)
+```
+
+```{r}
+#Grab the dataset
+abalone <- read.csv("abalone.csv")
+
+abalone %>% head(5)
+```
+
+# Q1 - Age
+
+```{r}
+# In order to make age column, use mutate function
+new_abalone <- abalone %>% mutate(age = rings + 1.5)
+```
+
+To Check the distribution of age, we can use a histogram. 
+
+```{r}
+new_abalone %>% ggplot(aes(x = age)) + geom_histogram(bins = 35)
+
+```
+
+The resulting histogram of age seems to be relatively normal, however there is a slight skew to the right. The majority of values seem to be around 10-12, however we can also seem some extreme outliers near the age of 30. 
+
+# Q2 Split
+
+```{r}
+# I set the seed up in the setup chunk
+#I decided to split the datset into an 80/20 Training/Testing set
+
+abalone_split <- initial_split(new_abalone, prop = .8, strata = age)
+
+#Set the training set to be the data we split
+abalone_train <- training(abalone_split)
+```
+
+
+# Q3 - Training
+
+```{r}
+#select(-rings) removes the variable from being considered
+
+ab_recipe <- recipe(age ~ ., data = abalone_train %>% select(-rings)) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact(terms = ~ starts_with("type"):shucked_weight) %>%
+  step_interact(terms = ~ longest_shell:diameter) %>%
+  step_interact(terms = ~ shucked_weight:shell_weight) %>% 
+  step_normalize(all_predictors())
+```
+
+The reason I de-selected the variable rings is because it is not native to the dataset, but rather a column of data manipulated from another column. 
+
+#  Q4 - Linear Regression
+
+```{r}
+#Set the AB model for linear model
+ab_lm <- linear_reg() %>% set_engine("lm")
+```
+
+# Q5 LM Continued
+
+```{r}
+ab_workflow <- workflow() %>% 
+  add_model(ab_lm) %>% 
+  add_recipe(ab_recipe)
+```
+
+# Q6 Using Fit()
+
+```{r}
+ab_fit <- fit(ab_workflow, abalone_train)
+
+female_predict <- data.frame(type = 'F', longest_shell = 0.5, diameter = 0.1, 
+                             height = 0.3, whole_weight = 4, 
+                             shucked_weight = 1,viscera_weight = 2, shell_weight = 1)
+
+predict(ab_fit, new_data = female_predict)
+
+```
+# Q7 Assessing Performance
+
+```{r}
+ab_train_r2 <- predict(ab_fit, new_data = abalone_train %>% select(-age))
+
+ab_train_r2 <- bind_cols(ab_train_r2, abalone_train %>% select(age))
+
+ab_metrics <- metric_set(rsq, rmse, mae)
+
+ab_metrics(ab_train_r2, truth = age, estimate = .pred)
+```
+
+We get an RSQ value of .5543 which we can interpret by saying our model's predictors could only capture 55.43% of the data effectively. This would be considered a poor model. 
+
